@@ -15,6 +15,13 @@ const LOAD_TYPES = ElectricLoad #for NAERM analysis
 const HVDC_TYPES = TwoTerminalHVDC
 # const LOAD_TYPES = Union{InterruptiblePowerLoad,StaticLoad}
 
+"""Get branches excepting ThreeWindingTransformers"""
+get_monitored_branches(branch_filter, sys::System) = get_components(
+    x -> !(x isa ThreeWindingTransformer) && branch_filter(x),
+    ACBranch,
+    sys,
+)
+
 """
 mutable struct Security
     contingency_branches::PowerSystems.InfrastructureSystems.FlattenIteratorWrapper{ACBranch}
@@ -106,7 +113,7 @@ end
 
 function find_interfaces(sys::System, branch_filter = x -> get_available(x))
     interfaces = Dict{Set,Vector{ACBranch}}()
-    for br in get_components(branch_filter, ACBranch, sys)
+    for br in get_monitored_branches(branch_filter, sys)
         from_area = get_area(get_from(get_arc(br)))
         to_area = get_area(get_to(get_arc(br)))
         if from_area != to_area
@@ -127,24 +134,29 @@ function find_neighbor_lines(
     branch_filter = x -> get_available(x),
     hops::Int64 = 3, # since only considering lines, update default hops to 3
 )
-    in_branches = collect(get_components(branch_filter, ACBranch, sys)) #for filtering lines at end
-    all_branches = collect(get_components(x -> get_available(x), ACBranch, sys)) #for finding buses
+    in_branches = collect(get_monitored_branches(branch_filter, sys)) #for filtering lines at end
+    all_branches = collect(get_monitored_branches(get_available, sys)) #for finding buses
+    # three-winding transformer windings still connect buses
+    winding_arcs = Arc[]
+    for tr in get_components(get_available, ThreeWindingTransformer, sys)
+        get_available_primary(tr) && push!(winding_arcs, get_primary_star_arc(tr))
+        get_available_secondary(tr) && push!(winding_arcs, get_secondary_star_arc(tr))
+        get_available_tertiary(tr) && push!(winding_arcs, get_tertiary_star_arc(tr))
+    end
+    all_arcs = vcat(get_arc.(all_branches), winding_arcs)
     areas = Set(interface_key)
     # get all the buses in the two areas of the interface
     bus_community = collect(get_components(x -> get_name(get_area(x)) ∈ areas, ACBus, sys))
     line_neighbors = Set{ACBranch}
     for hop = 1:hops
-        line_indexes = findall(
-            x -> (
-                get_from(get_arc(x)) ∈ bus_community || get_to(get_arc(x)) ∈ bus_community
-            ),
-            all_branches,
+        touches_community = map(
+            x -> get_from(x) ∈ bus_community || get_to(x) ∈ bus_community,
+            all_arcs,
         )
-        line_neighbors = all_branches[line_indexes]
+        line_neighbors = all_branches[touches_community[1:length(all_branches)]]
+        neighbor_arcs = all_arcs[touches_community]
         # collect all buses regardless of branch filter
-        bus_community = Set(
-            union(get_to.(get_arc.(line_neighbors)), get_from.(get_arc.(line_neighbors))),
-        )
+        bus_community = Set(union(get_to.(neighbor_arcs), get_from.(neighbor_arcs)))
     end
     # filter out line neighbors to only those in branch filter
     line_community = intersect(in_branches, line_neighbors)
