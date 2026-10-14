@@ -23,6 +23,13 @@ get_monitored_branches(branch_filter, sys::System) = get_components(
 )
 
 """
+Build a network matrix of type `T` without changing the units base of `sys`. Network
+matrix construction sets the units base of the system to `SYSTEM_BASE`.
+"""
+build_network_matrix(::Type{T}, sys::System) where {T} =
+    with_units_base(() -> T(sys), sys, UnitSystem.SYSTEM_BASE)
+
+"""
 mutable struct Security
     contingency_branches::PowerSystems.InfrastructureSystems.FlattenIteratorWrapper{ACBranch}
     lodf::VirtualLODF
@@ -43,7 +50,10 @@ end
 Function to create `Security` struct with default values
 """
 function Security(sys::System)
-    return Security(get_available_components(ACBranch, sys), VirtualLODF(sys))
+    return Security(
+        get_available_components(ACBranch, sys),
+        build_network_matrix(VirtualLODF, sys),
+    )
 end
 
 """
@@ -53,7 +63,7 @@ function Security(
     sys::System,
     contingency_branches::PSY.IS.FlattenIteratorWrapper{ACBranch},
 )
-    return Security(contingency_branches, VirtualLODF(sys))
+    return Security(contingency_branches, build_network_matrix(VirtualLODF, sys))
 end
 
 """
@@ -608,7 +618,7 @@ function find_interface_limits(
     sys::System,
     solver::JuMP.MOI.OptimizerWithAttributes;
     branch_filter::Function = x -> get_available(x),
-    ptdf::VirtualPTDF = VirtualPTDF(sys),
+    ptdf::VirtualPTDF = build_network_matrix(VirtualPTDF, sys),
     security::Union{Bool,Security} = false,
     injection_limits::InjectionLimits = InjectionLimits(),
     hops::Int = 3,
@@ -653,7 +663,7 @@ function find_interface_limits(
     interface_key::Pair{String,String},
     interface::Vector{ACBranch};
     branch_filter::Function = x -> get_available(x),
-    ptdf::VirtualPTDF = VirtualPTDF(sys),
+    ptdf::VirtualPTDF = build_network_matrix(VirtualPTDF, sys),
     security::Union{Bool,Security} = false,
     injection_limits::InjectionLimits = InjectionLimits(),
     hops::Int = 3,

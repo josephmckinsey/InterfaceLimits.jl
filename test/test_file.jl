@@ -25,6 +25,14 @@ using HiGHS
         @test nrow(df) > 0
         @test all(df.transfer_limit .>= 0)
         @test all(df.transfer_limit .<= df.sum_capacity .+ 1e-6)
+        # interface capacities in MW, since the system is in natural units
+        capacity_mw = Dict(
+            "1_2" => 1175.0, "2_1" => 1175.0,
+            "1_3" => 500.0, "3_1" => 500.0,
+            "2_3" => 500.0, "3_2" => 500.0,
+        )
+        @test all(df.sum_capacity .≈ getindex.(Ref(capacity_mw), df.interface))
+        @test string(get_units_base(sys)) == "NATURAL_UNITS"
     end
 
     @testset "n-1 interface limits (security=true)" begin
@@ -36,6 +44,7 @@ using HiGHS
         @test nrow(df) > 0
         @test all(df.transfer_limit .>= 0)
         @test all(df.transfer_limit .<= df.sum_capacity .+ 1e-6)
+        @test string(get_units_base(sys)) == "NATURAL_UNITS"
     end
 
     interfaces = InterfaceLimits.find_interfaces(sys)
